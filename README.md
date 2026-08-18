@@ -22,6 +22,8 @@ The export pipeline is native Rust code. It supports PNG, JPEG, and TIFF output,
 
 The source repository is public at [github.com/prototype461y5k/the-shot-card](https://github.com/prototype461y5k/the-shot-card). macOS builds and source archives are published under the repository’s [Releases](https://github.com/prototype461y5k/the-shot-card/releases) section. The Apple Silicon release asset is named `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg`.
 
+The project’s policy documents are available as [Privacy Policy](PRIVACY.md) and [Terms of Service](TERMS.md). They are practical project drafts describing the current local-only data flow and open-source distribution model; they should be reviewed by a qualified attorney before being relied on as formal legal documents.
+
 ### Release checksums
 
 The SHA-256 checksums below correspond to the files published in the v0.6.7 release. Compare the checksum after downloading to confirm that the local file matches the published artifact.

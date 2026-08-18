@@ -22,6 +22,17 @@ The export pipeline is native Rust code. It supports PNG, JPEG, and TIFF output,
 
 The source repository is public at [github.com/prototype461y5k/the-shot-card](https://github.com/prototype461y5k/the-shot-card). macOS builds and source archives are published under the repository’s [Releases](https://github.com/prototype461y5k/the-shot-card/releases) section. The Apple Silicon release asset is named `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg`.
 
+### Release checksums
+
+The SHA-256 checksums below correspond to the files published in the v0.6.7 release. Compare the checksum after downloading to confirm that the local file matches the published artifact.
+
+| Asset | SHA-256 |
+|---|---|
+| `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg` | `6b5c420284035c1fe998c587cced6b80ffd45430b68e653050df175a17008890` |
+| `The-Shot-Card-v0.6.7-source.zip` | `2ae4da3c04c466a74d77183d41b1fdc82ad3ca4f4204195257852045c22fd6ab` |
+
+On macOS or Linux, run `shasum -a 256 <downloaded-file>` or `sha256sum <downloaded-file>`. On Windows PowerShell, run `Get-FileHash .\\downloaded-file -Algorithm SHA256`.
+
 ## Main features
 
 | Area | Included behavior |

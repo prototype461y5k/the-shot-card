@@ -18,6 +18,10 @@ A composition can include camera body, lens, focal length, aperture, shutter spe
 
 The export pipeline is native Rust code. It supports PNG, JPEG, and TIFF output, 1×/2×/3× resolution multipliers, a native macOS save dialog, user-selected filenames and folders, and Finder reveal notifications after export.
 
+## Public repository and releases
+
+The source repository is public at [github.com/prototype461y5k/the-shot-card](https://github.com/prototype461y5k/the-shot-card). macOS builds and source archives are published under the repository’s [Releases](https://github.com/prototype461y5k/the-shot-card/releases) section. The Apple Silicon release asset is named `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg`.
+
 ## Main features
 
 | Area | Included behavior |
@@ -111,7 +115,7 @@ The project is actively evolving. UI translations, layout defaults, typography, 
 
 ## License
 
-No license has been selected for this initial public publication yet. Until a license file is added, the source is publicly viewable but should not be assumed to grant permission to reuse, redistribute, or modify it beyond the rights provided by applicable law. A license decision should be made explicitly by the project owner before accepting external contributions.
+This project is released under the [MIT License](LICENSE). The license permits use, copying, modification, publication, distribution, sublicensing, and sale of the software, subject to the conditions in the license file. The software is provided without warranty.
 
 ## Acknowledgements
 

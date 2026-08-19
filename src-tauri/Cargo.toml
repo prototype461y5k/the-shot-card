@@ -1,6 +1,6 @@
 [package]
 name = "ig-kamera-bilgisi-sablonu"
-version = "0.6.7"
+version = "0.6.8"
 description = "IG Kamera Bilgisi Şablonu"
 authors = ["Manus AI"]
 edition = "2021"

@@ -20,18 +20,17 @@ The export pipeline is native Rust code. It supports PNG, JPEG, and TIFF output,
 
 ## Public repository and releases
 
-The source repository is public at [github.com/prototype461y5k/the-shot-card](https://github.com/prototype461y5k/the-shot-card). macOS builds and source archives are published under the repository’s [Releases](https://github.com/prototype461y5k/the-shot-card/releases) section. The Apple Silicon release asset is named `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg`.
+The source repository is public at [github.com/prototype461y5k/the-shot-card](https://github.com/prototype461y5k/the-shot-card). macOS builds and source archives are published under the repository’s [Releases](https://github.com/prototype461y5k/the-shot-card/releases) section. The Apple Silicon release asset is named `The-Shot-Card-v0.6.8-toast-hitarea-fix-macOS-aarch64.dmg`.
 
 The project’s policy documents are available as [Privacy Policy](PRIVACY.md) and [Terms of Service](TERMS.md). They are practical project drafts describing the current local-only data flow and open-source distribution model; they should be reviewed by a qualified attorney before being relied on as formal legal documents.
 
 ### Release checksums
 
-The SHA-256 checksums below correspond to the files published in the v0.6.7 release. Compare the checksum after downloading to confirm that the local file matches the published artifact.
+The SHA-256 checksum below corresponds to the DMG published in the v0.6.8 release. Compare the checksum after downloading to confirm that the local file matches the published artifact. Previous release assets remain available in the [Releases](https://github.com/prototype461y5k/the-shot-card/releases) archive.
 
 | Asset | SHA-256 |
 |---|---|
-| `The-Shot-Card-v0.6.7-open-anyway-macOS-aarch64.dmg` | `6b5c420284035c1fe998c587cced6b80ffd45430b68e653050df175a17008890` |
-| `The-Shot-Card-v0.6.7-source.zip` | `2ae4da3c04c466a74d77183d41b1fdc82ad3ca4f4204195257852045c22fd6ab` |
+| `The-Shot-Card-v0.6.8-toast-hitarea-fix-macOS-aarch64.dmg` | `c65446787dff15855ed4903a69966ee1d982aa545bef5e61af862ab3d008cf25` |
 
 On macOS or Linux, run `shasum -a 256 <downloaded-file>` or `sha256sum <downloaded-file>`. On Windows PowerShell, run `Get-FileHash .\\downloaded-file -Algorithm SHA256`.
 
@@ -40,14 +39,14 @@ On macOS or Linux, run `shasum -a 256 <downloaded-file>` or `sha256sum <download
 | Area | Included behavior |
 |---|---|
 | Import | Native macOS file picker, drag-and-drop, local image processing |
-| Metadata | Native EXIF reading for supported JPEG files; manual EXIF fill button |
+| Metadata | Native EXIF reading for supported JPEG files; single-photo and batch EXIF fill buttons |
 | Canvas presets | 3:4, 4:5, 1:1, 1.91:1, and 4.74:1 ultra-wide |
 | Preview | Fixed viewport, zoom up to 500%, FIT reset, photo drag, trackpad pan |
 | Layout | Contain and Cover/Crop modes with ratio-aware spacing defaults |
 | Technical fields | Camera body, lens, focal length, aperture, shutter, ISO |
 | User lists | Add/remove camera and lens values; saved locally between sessions |
 | Typefaces | Twelve bundled typefaces with no system-font dependency |
-| Export | PNG lossless, JPEG quality 100, TIFF master, 1×/2×/3× resolution |
+| Export | PNG lossless, JPEG quality 100, TIFF master, 1×/2×/3× resolution, local progress indicator, Finder reveal |
 | Languages | English, Türkçe, Español, Deutsch, Français, Italiano |
 | Privacy | Local processing; photos are not uploaded by the application |
 
@@ -118,7 +117,7 @@ The DMG uses the standard Tauri packaging flow and includes an Applications shor
 
 ## Native tests
 
-The Rust backend includes acceptance-oriented tests covering the bundled fonts, EXIF reading, native image import, export code paths, and required canvas dimensions. The current test suite contains five passing tests in the development environment.
+The Rust backend includes acceptance-oriented tests covering the bundled fonts, EXIF reading, native image import, export code paths, required canvas dimensions, and Sigma lens-name cleanup. The current test suite contains seven passing tests in the development environment.
 
 ## Limitations and known considerations
 

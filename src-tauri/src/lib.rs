@@ -123,6 +123,21 @@ fn format_iso(value: &Value) -> String {
         _ => String::new(),
     }
 }
+fn normalize_lens_name(value: String) -> String {
+    let trimmed = value.trim();
+    let mut parts = trimmed.rsplitn(2, ' ');
+    let suffix = parts.next().unwrap_or_default();
+    let prefix = parts.next().unwrap_or_default().trim_end();
+    let is_sigma_product_code = suffix.len() == 3
+        && suffix.starts_with('0')
+        && suffix.chars().all(|character| character.is_ascii_digit())
+        && (prefix.contains("DG DN") || prefix.contains("Art"));
+    if is_sigma_product_code && !prefix.is_empty() {
+        prefix.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
 fn read_exif(bytes: &[u8]) -> (PhotoMetadata, bool) {
     let mut cursor = Cursor::new(bytes);
     let Ok(exif) = ExifReader::new().read_from_container(&mut cursor) else {
@@ -141,7 +156,7 @@ fn read_exif(bytes: &[u8]) -> (PhotoMetadata, bool) {
             .unwrap_or_default()
     };
     let camera = text(Tag::Model);
-    let lens = text(Tag::LensModel);
+    let lens = normalize_lens_name(text(Tag::LensModel));
     let focal = exif
         .get_field(Tag::FocalLength, In::PRIMARY)
         .map(|field| format_focal(&field.value))
@@ -314,13 +329,38 @@ fn draw_border(canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, color: Rgba<u8>, wid
 }
 
 #[tauri::command]
-fn get_default_export_dir() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    let dir = PathBuf::from(home)
-        .join("Downloads")
-        .join("IG-Kamera-Bilgisi");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().to_string())
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    let target = PathBuf::from(path);
+    if !target.exists() {
+        return Err("Export edilen dosya bulunamadı.".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&target)
+            .status()
+            .map_err(|e| format!("Finder açılamadı: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Finder dosyayı gösteremedi.".to_string()) })
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&target)
+            .status()
+            .map_err(|e| format!("Dosya gezgini açılamadı: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Dosya gezgini dosyayı gösteremedi.".to_string()) })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let parent = target.parent().unwrap_or_else(|| Path::new("."));
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .status()
+            .map_err(|e| format!("Dosya yöneticisi açılamadı: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Dosya yöneticisi açılamadı.".to_string()) })
+    }
 }
 
 #[tauri::command]
@@ -449,11 +489,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
-            get_default_export_dir,
-            read_image_files,
-            export_composite
-        ])
+        .invoke_handler(tauri::generate_handler![read_image_files, reveal_in_finder, export_composite])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -620,6 +656,30 @@ mod import_tests {
     }
 }
 
+#[cfg(test)]
+mod exif_lens_tests {
+    use super::*;
+
+    #[test]
+    fn strips_sigma_product_code_from_lens_display_name() {
+        assert_eq!(
+            normalize_lens_name("14–24mm F2.8 DG DN | Art 019".to_string()),
+            "14–24mm F2.8 DG DN | Art"
+        );
+    }
+
+    #[test]
+    fn preserves_lens_names_without_sigma_product_code_suffix() {
+        assert_eq!(
+            normalize_lens_name("Zeiss Planar CF 80mm f/2.8".to_string()),
+            "Zeiss Planar CF 80mm f/2.8"
+        );
+        assert_eq!(
+            normalize_lens_name("24–70mm F2.8 GM II".to_string()),
+            "24–70mm F2.8 GM II"
+        );
+    }
+}
 #[cfg(test)]
 mod font_tests {
     use super::*;

@@ -14,6 +14,7 @@ use std::{
 #[serde(rename_all = "camelCase")]
 struct ExportRequest {
     image_data: String,
+    image_path: Option<String>,
     output_path: String,
     output_format: String,
     canvas_width: u32,
@@ -58,11 +59,19 @@ struct PhotoMetadata {
 struct NativePhoto {
     name: String,
     data_url: String,
+    file_path: String,
     width: u32,
     height: u32,
     size: u64,
     metadata: PhotoMetadata,
     exif_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportResult {
+    photos: Vec<NativePhoto>,
+    skipped_count: usize,
 }
 
 fn rational(value: &Value) -> Option<(u32, u32)> {
@@ -123,6 +132,21 @@ fn format_iso(value: &Value) -> String {
         _ => String::new(),
     }
 }
+fn normalize_lens_name(value: String) -> String {
+    let trimmed = value.trim();
+    let mut parts = trimmed.rsplitn(2, ' ');
+    let suffix = parts.next().unwrap_or_default();
+    let prefix = parts.next().unwrap_or_default().trim_end();
+    let is_sigma_product_code = suffix.len() == 3
+        && suffix.starts_with('0')
+        && suffix.chars().all(|character| character.is_ascii_digit())
+        && (prefix.contains("DG DN") || prefix.contains("Art"));
+    if is_sigma_product_code && !prefix.is_empty() {
+        prefix.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
 fn read_exif(bytes: &[u8]) -> (PhotoMetadata, bool) {
     let mut cursor = Cursor::new(bytes);
     let Ok(exif) = ExifReader::new().read_from_container(&mut cursor) else {
@@ -141,7 +165,7 @@ fn read_exif(bytes: &[u8]) -> (PhotoMetadata, bool) {
             .unwrap_or_default()
     };
     let camera = text(Tag::Model);
-    let lens = text(Tag::LensModel);
+    let lens = normalize_lens_name(text(Tag::LensModel));
     let focal = exif
         .get_field(Tag::FocalLength, In::PRIMARY)
         .map(|field| format_focal(&field.value))
@@ -185,36 +209,70 @@ fn image_mime(path: &Path) -> &'static str {
     }
 }
 #[tauri::command]
-fn read_image_files(paths: Vec<String>) -> Result<Vec<NativePhoto>, String> {
-    paths
-        .into_iter()
-        .map(|raw| {
-            let path = PathBuf::from(&raw);
-            let bytes =
-                fs::read(&path).map_err(|e| format!("{} okunamadı: {e}", path.display()))?;
-            let image = image::load_from_memory(&bytes)
-                .map_err(|e| format!("{} görüntü olarak açılamadı: {e}", path.display()))?;
-            let name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("fotoğraf")
-                .to_string();
-            let (metadata, exif_available) = read_exif(&bytes);
-            Ok(NativePhoto {
-                name,
-                data_url: format!(
-                    "data:{};base64,{}",
-                    image_mime(&path),
-                    STANDARD.encode(&bytes)
-                ),
-                width: image.width(),
-                height: image.height(),
-                size: bytes.len() as u64,
-                metadata,
-                exif_available,
-            })
-        })
-        .collect()
+fn read_image_files(paths: Vec<String>) -> Result<ImportResult, String> {
+    let mut photos = Vec::new();
+    let mut skipped_count = 0;
+
+    for raw in paths {
+        let path = PathBuf::from(&raw);
+        
+        // Skip if not a file or extension is not supported (basic check before loading)
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        if !["jpg", "jpeg", "png", "tiff", "tif", "webp"].contains(&ext.as_str()) {
+            skipped_count += 1;
+            continue;
+        }
+
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => {
+                skipped_count += 1;
+                continue;
+            }
+        };
+
+        let image = match image::load_from_memory(&bytes) {
+            Ok(img) => img,
+            Err(_) => {
+                skipped_count += 1;
+                continue;
+            }
+        };
+
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("photo")
+            .to_string();
+        let (metadata, exif_available) = read_exif(&bytes);
+        
+        let max_preview_dim = 4096;
+        let preview_bytes = if image.width() > max_preview_dim || image.height() > max_preview_dim {
+            let scaled = image.resize(max_preview_dim, max_preview_dim, image::imageops::FilterType::Triangle);
+            let mut buffer = Cursor::new(Vec::new());
+            scaled.write_to(&mut buffer, image::ImageFormat::Jpeg).unwrap_or(());
+            buffer.into_inner()
+        } else {
+            bytes.clone()
+        };
+
+        photos.push(NativePhoto {
+            name,
+            data_url: format!(
+                "data:{};base64,{}",
+                if preview_bytes.len() == bytes.len() { image_mime(&path) } else { "image/jpeg" },
+                STANDARD.encode(&preview_bytes)
+            ),
+            file_path: raw,
+            width: image.width(),
+            height: image.height(),
+            size: bytes.len() as u64,
+            metadata,
+            exif_available,
+        });
+    }
+
+    Ok(ImportResult { photos, skipped_count })
 }
 fn font_bytes(id: &str) -> &'static [u8] {
     match id {
@@ -314,23 +372,55 @@ fn draw_border(canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, color: Rgba<u8>, wid
 }
 
 #[tauri::command]
-fn get_default_export_dir() -> Result<String, String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    let dir = PathBuf::from(home)
-        .join("Downloads")
-        .join("IG-Kamera-Bilgisi");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().to_string())
+fn reveal_in_finder(path: String) -> Result<(), String> {
+    let target = PathBuf::from(path);
+    if !target.exists() {
+        return Err("Exported file not found.".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&target)
+            .status()
+            .map_err(|e| format!("Could not open Finder: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Finder could not show the file.".to_string()) })
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&target)
+            .status()
+            .map_err(|e| format!("Could not open file explorer: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("File explorer could not show the file.".to_string()) })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let parent = target.parent().unwrap_or_else(|| Path::new("."));
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .status()
+            .map_err(|e| format!("Could not open file manager: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Could not open file manager.".to_string()) })
+    }
 }
 
 #[tauri::command]
 fn export_composite(request: ExportRequest) -> Result<String, String> {
     if request.canvas_width == 0 || request.canvas_height == 0 {
-        return Err("Canvas ölçüsü geçersiz.".into());
+        return Err("Invalid canvas size.".into());
     }
-    let source_bytes = decode_data_url(&request.image_data)?;
-    let source =
-        image::load_from_memory(&source_bytes).map_err(|e| format!("Fotoğraf okunamadı: {e}"))?;
+    
+    // Optimization: Load from path if available to avoid huge Base64 IPC transfer
+    let source = if let Some(path_str) = &request.image_path {
+        let path = Path::new(path_str);
+        image::open(path).map_err(|e| format!("Could not read photo from file ({}): {e}", path.display()))?
+    } else {
+        let source_bytes = decode_data_url(&request.image_data)?;
+        image::load_from_memory(&source_bytes).map_err(|e| format!("Could not read photo from data: {e}"))?
+    };
+
     let source_rgba = source.to_rgba8();
     let source_w = source_rgba.width().max(1);
     let source_h = source_rgba.height().max(1);
@@ -395,7 +485,7 @@ fn export_composite(request: ExportRequest) -> Result<String, String> {
     }
 
     let font = FontRef::try_from_slice(font_bytes(&request.font_family))
-        .map_err(|_| "Teknik yazı tipi yüklenemedi.".to_string())?;
+        .map_err(|_| "Could not load technical font.".to_string())?;
     let lines = wrap_for_width(&request.lines, request.info_width, request.font_size);
     let scale = PxScale::from(request.font_size.max(8) as f32);
     let text_color = parse_hex(&request.text_color);
@@ -427,19 +517,19 @@ fn export_composite(request: ExportRequest) -> Result<String, String> {
         ImageFormat::Jpeg => {
             let rgb = DynamicImage::ImageRgba8(canvas).to_rgb8();
             let file =
-                fs::File::create(&output_path).map_err(|e| format!("Export başarısız: {e}"))?;
+                fs::File::create(&output_path).map_err(|e| format!("Export failed: {e}"))?;
             let mut writer = BufWriter::new(file);
             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, 100);
             encoder
                 .encode_image(&DynamicImage::ImageRgb8(rgb))
-                .map_err(|e| format!("Export başarısız: {e}"))?;
+                .map_err(|e| format!("Export failed: {e}"))?;
             writer
                 .flush()
-                .map_err(|e| format!("Export başarısız: {e}"))?;
+                .map_err(|e| format!("Export failed: {e}"))?;
         }
         _ => DynamicImage::ImageRgba8(canvas)
             .save_with_format(&output_path, format)
-            .map_err(|e| format!("Export başarısız: {e}"))?,
+            .map_err(|e| format!("Export failed: {e}"))?,
     };
     Ok(output_path.to_string_lossy().to_string())
 }
@@ -449,11 +539,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
-            get_default_export_dir,
-            read_image_files,
-            export_composite
-        ])
+        .invoke_handler(tauri::generate_handler![read_image_files, reveal_in_finder, export_composite])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -620,6 +706,30 @@ mod import_tests {
     }
 }
 
+#[cfg(test)]
+mod exif_lens_tests {
+    use super::*;
+
+    #[test]
+    fn strips_sigma_product_code_from_lens_display_name() {
+        assert_eq!(
+            normalize_lens_name("14–24mm F2.8 DG DN | Art 019".to_string()),
+            "14–24mm F2.8 DG DN | Art"
+        );
+    }
+
+    #[test]
+    fn preserves_lens_names_without_sigma_product_code_suffix() {
+        assert_eq!(
+            normalize_lens_name("Zeiss Planar CF 80mm f/2.8".to_string()),
+            "Zeiss Planar CF 80mm f/2.8"
+        );
+        assert_eq!(
+            normalize_lens_name("24–70mm F2.8 GM II".to_string()),
+            "24–70mm F2.8 GM II"
+        );
+    }
+}
 #[cfg(test)]
 mod font_tests {
     use super::*;

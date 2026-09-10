@@ -18,11 +18,16 @@ A composition can include camera body, lens, focal length, aperture, shutter spe
 
 The export pipeline is native Rust code. It supports PNG, JPEG, and TIFF output, 1×/2×/3× resolution multipliers, a native macOS save dialog, user-selected filenames and folders, and Finder reveal notifications after export.
 
+## Latest Build (v0.6.8)
+
+**File**: `The-Shot-Card-v0.6.8-batch-import-fix-macOS-aarch64.dmg`
+**SHA-256**: `76fa24d155994bc3488cecbdc9d1b90a5e58ce931216692c88beacea0908d0f1`
+
 ## Main features
 
 | Area | Included behavior |
 |---|---|
-| Import | Native macOS file picker, drag-and-drop, local image processing |
+| Import | Native macOS file picker, drag-and-drop, resilient batch import (skips unsupported files), local image processing |
 | Metadata | Native EXIF reading for supported JPEG files; manual EXIF fill button |
 | Canvas presets | 3:4, 4:5, 1:1, 1.91:1, and 4.74:1 ultra-wide |
 | Preview | Fixed viewport, zoom up to 500%, FIT reset, photo drag, trackpad pan |

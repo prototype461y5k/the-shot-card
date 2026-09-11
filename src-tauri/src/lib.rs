@@ -14,6 +14,7 @@ use std::{
 #[serde(rename_all = "camelCase")]
 struct ExportRequest {
     image_data: String,
+    image_path: Option<String>,
     output_path: String,
     output_format: String,
     canvas_width: u32,
@@ -58,11 +59,19 @@ struct PhotoMetadata {
 struct NativePhoto {
     name: String,
     data_url: String,
+    file_path: String,
     width: u32,
     height: u32,
     size: u64,
     metadata: PhotoMetadata,
     exif_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportResult {
+    photos: Vec<NativePhoto>,
+    skipped_count: usize,
 }
 
 fn rational(value: &Value) -> Option<(u32, u32)> {
@@ -200,36 +209,70 @@ fn image_mime(path: &Path) -> &'static str {
     }
 }
 #[tauri::command]
-fn read_image_files(paths: Vec<String>) -> Result<Vec<NativePhoto>, String> {
-    paths
-        .into_iter()
-        .map(|raw| {
-            let path = PathBuf::from(&raw);
-            let bytes =
-                fs::read(&path).map_err(|e| format!("{} okunamadı: {e}", path.display()))?;
-            let image = image::load_from_memory(&bytes)
-                .map_err(|e| format!("{} görüntü olarak açılamadı: {e}", path.display()))?;
-            let name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("fotoğraf")
-                .to_string();
-            let (metadata, exif_available) = read_exif(&bytes);
-            Ok(NativePhoto {
-                name,
-                data_url: format!(
-                    "data:{};base64,{}",
-                    image_mime(&path),
-                    STANDARD.encode(&bytes)
-                ),
-                width: image.width(),
-                height: image.height(),
-                size: bytes.len() as u64,
-                metadata,
-                exif_available,
-            })
-        })
-        .collect()
+fn read_image_files(paths: Vec<String>) -> Result<ImportResult, String> {
+    let mut photos = Vec::new();
+    let mut skipped_count = 0;
+
+    for raw in paths {
+        let path = PathBuf::from(&raw);
+        
+        // Skip if not a file or extension is not supported (basic check before loading)
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+        if !["jpg", "jpeg", "png", "tiff", "tif", "webp"].contains(&ext.as_str()) {
+            skipped_count += 1;
+            continue;
+        }
+
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => {
+                skipped_count += 1;
+                continue;
+            }
+        };
+
+        let image = match image::load_from_memory(&bytes) {
+            Ok(img) => img,
+            Err(_) => {
+                skipped_count += 1;
+                continue;
+            }
+        };
+
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("photo")
+            .to_string();
+        let (metadata, exif_available) = read_exif(&bytes);
+        
+        let max_preview_dim = 4096;
+        let preview_bytes = if image.width() > max_preview_dim || image.height() > max_preview_dim {
+            let scaled = image.resize(max_preview_dim, max_preview_dim, image::imageops::FilterType::Triangle);
+            let mut buffer = Cursor::new(Vec::new());
+            scaled.write_to(&mut buffer, image::ImageFormat::Jpeg).unwrap_or(());
+            buffer.into_inner()
+        } else {
+            bytes.clone()
+        };
+
+        photos.push(NativePhoto {
+            name,
+            data_url: format!(
+                "data:{};base64,{}",
+                if preview_bytes.len() == bytes.len() { image_mime(&path) } else { "image/jpeg" },
+                STANDARD.encode(&preview_bytes)
+            ),
+            file_path: raw,
+            width: image.width(),
+            height: image.height(),
+            size: bytes.len() as u64,
+            metadata,
+            exif_available,
+        });
+    }
+
+    Ok(ImportResult { photos, skipped_count })
 }
 fn font_bytes(id: &str) -> &'static [u8] {
     match id {
@@ -332,7 +375,7 @@ fn draw_border(canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>, color: Rgba<u8>, wid
 fn reveal_in_finder(path: String) -> Result<(), String> {
     let target = PathBuf::from(path);
     if !target.exists() {
-        return Err("Export edilen dosya bulunamadı.".to_string());
+        return Err("Exported file not found.".to_string());
     }
     #[cfg(target_os = "macos")]
     {
@@ -340,8 +383,8 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
             .arg("-R")
             .arg(&target)
             .status()
-            .map_err(|e| format!("Finder açılamadı: {e}"))
-            .and_then(|status| if status.success() { Ok(()) } else { Err("Finder dosyayı gösteremedi.".to_string()) })
+            .map_err(|e| format!("Could not open Finder: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Finder could not show the file.".to_string()) })
     }
     #[cfg(target_os = "windows")]
     {
@@ -349,8 +392,8 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
             .arg("/select,")
             .arg(&target)
             .status()
-            .map_err(|e| format!("Dosya gezgini açılamadı: {e}"))
-            .and_then(|status| if status.success() { Ok(()) } else { Err("Dosya gezgini dosyayı gösteremedi.".to_string()) })
+            .map_err(|e| format!("Could not open file explorer: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("File explorer could not show the file.".to_string()) })
     }
     #[cfg(target_os = "linux")]
     {
@@ -358,19 +401,26 @@ fn reveal_in_finder(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(parent)
             .status()
-            .map_err(|e| format!("Dosya yöneticisi açılamadı: {e}"))
-            .and_then(|status| if status.success() { Ok(()) } else { Err("Dosya yöneticisi açılamadı.".to_string()) })
+            .map_err(|e| format!("Could not open file manager: {e}"))
+            .and_then(|status| if status.success() { Ok(()) } else { Err("Could not open file manager.".to_string()) })
     }
 }
 
 #[tauri::command]
 fn export_composite(request: ExportRequest) -> Result<String, String> {
     if request.canvas_width == 0 || request.canvas_height == 0 {
-        return Err("Canvas ölçüsü geçersiz.".into());
+        return Err("Invalid canvas size.".into());
     }
-    let source_bytes = decode_data_url(&request.image_data)?;
-    let source =
-        image::load_from_memory(&source_bytes).map_err(|e| format!("Fotoğraf okunamadı: {e}"))?;
+    
+    // Optimization: Load from path if available to avoid huge Base64 IPC transfer
+    let source = if let Some(path_str) = &request.image_path {
+        let path = Path::new(path_str);
+        image::open(path).map_err(|e| format!("Could not read photo from file ({}): {e}", path.display()))?
+    } else {
+        let source_bytes = decode_data_url(&request.image_data)?;
+        image::load_from_memory(&source_bytes).map_err(|e| format!("Could not read photo from data: {e}"))?
+    };
+
     let source_rgba = source.to_rgba8();
     let source_w = source_rgba.width().max(1);
     let source_h = source_rgba.height().max(1);
@@ -435,7 +485,7 @@ fn export_composite(request: ExportRequest) -> Result<String, String> {
     }
 
     let font = FontRef::try_from_slice(font_bytes(&request.font_family))
-        .map_err(|_| "Teknik yazı tipi yüklenemedi.".to_string())?;
+        .map_err(|_| "Could not load technical font.".to_string())?;
     let lines = wrap_for_width(&request.lines, request.info_width, request.font_size);
     let scale = PxScale::from(request.font_size.max(8) as f32);
     let text_color = parse_hex(&request.text_color);
@@ -467,19 +517,19 @@ fn export_composite(request: ExportRequest) -> Result<String, String> {
         ImageFormat::Jpeg => {
             let rgb = DynamicImage::ImageRgba8(canvas).to_rgb8();
             let file =
-                fs::File::create(&output_path).map_err(|e| format!("Export başarısız: {e}"))?;
+                fs::File::create(&output_path).map_err(|e| format!("Export failed: {e}"))?;
             let mut writer = BufWriter::new(file);
             let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, 100);
             encoder
                 .encode_image(&DynamicImage::ImageRgb8(rgb))
-                .map_err(|e| format!("Export başarısız: {e}"))?;
+                .map_err(|e| format!("Export failed: {e}"))?;
             writer
                 .flush()
-                .map_err(|e| format!("Export başarısız: {e}"))?;
+                .map_err(|e| format!("Export failed: {e}"))?;
         }
         _ => DynamicImage::ImageRgba8(canvas)
             .save_with_format(&output_path, format)
-            .map_err(|e| format!("Export başarısız: {e}"))?,
+            .map_err(|e| format!("Export failed: {e}"))?,
     };
     Ok(output_path.to_string_lossy().to_string())
 }

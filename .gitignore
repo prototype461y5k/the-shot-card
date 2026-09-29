@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 # Public repository hygiene
-The editable source repository intentionally excludes generated dependencies, build output, local archives, and release bundles.
+# The editable source repository intentionally excludes generated dependencies, build output, local archives, and release bundles.
 *.zip
 *.dmg
 src-tauri/target/
@@ -32,3 +32,5 @@ dist/
 node_modules/
 .DS_Store
 .cargo-home/
+.npmcache/
+.rustup-home/

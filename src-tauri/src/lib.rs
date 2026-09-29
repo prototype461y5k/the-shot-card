@@ -567,6 +567,7 @@ mod tests {
                 "data:image/png;base64,{}",
                 STANDARD.encode(bytes.into_inner())
             ),
+            image_path: None,
             output_path: path.to_string_lossy().to_string(),
             output_format: "png".into(),
             canvas_width: width,
@@ -670,7 +671,7 @@ mod exif_tests {
 
     #[test]
     fn reads_exif_from_local_sony_fixture_when_available() {
-        let path = Path::new("/Users/akb/Desktop/ajksfvda/test photo 2.jpg");
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../test photo 2.jpg"));
         if !path.exists() {
             return;
         }
@@ -692,12 +693,14 @@ mod import_tests {
 
     #[test]
     fn native_import_returns_data_url_and_exif_metadata_when_fixture_exists() {
-        let path = Path::new("/Users/akb/Desktop/ajksfvda/test photo 2.jpg");
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../test photo 2.jpg"));
         if !path.exists() {
             return;
         }
-        let photos =
+        let result =
             read_image_files(vec![path.to_string_lossy().to_string()]).expect("native import");
+        assert_eq!(result.skipped_count, 0);
+        let photos = result.photos;
         assert_eq!(photos.len(), 1);
         assert!(photos[0].data_url.starts_with("data:image/jpeg;base64,"));
         assert!(photos[0].width > 0 && photos[0].height > 0);

@@ -167,7 +167,8 @@ function App() {
   const acceptPaths = async (paths: string[]) => {
     if (!paths.length) return;
     try {
-      const imported = await invoke<NativePhoto[]>('read_image_files', { paths });
+      const { photos: imported, skippedCount } = await invoke<{ photos: NativePhoto[]; skippedCount: number }>('read_image_files', { paths });
+      if (skippedCount > 0) notify(`${skippedCount} dosya desteklenmediği için atlandı.`);
       const loaded = imported.map((photo) => ({ ...photo, id: `${photo.name}-${photo.size}-${Math.random()}`, metadata: { ...emptyMetadata, ...photo.metadata }, exifAvailable: Boolean(photo.exifAvailable) }));
       addLoadedPhotos(loaded);
     } catch (error) { notify(error instanceof Error ? error.message : 'Dosya içe aktarılamadı.'); }
